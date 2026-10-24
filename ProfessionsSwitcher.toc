@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: Professions Switcher
+## Notes: Adds a dropdown of your crafting professions to the top of every crafting window.
+## Author: sultonmrp
+## Version: 1.1
+## SavedVariablesPerCharacter: ProfessionsSwitcherDB
+
+ProfessionsSwitcher.lua

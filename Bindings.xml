@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="PROFESSIONSSWITCHER_OPEN" header="PROFESSIONSSWITCHER">
+        ProfessionsSwitcher_OpenLast()
+    </Binding>
+</Bindings>
