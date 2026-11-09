@@ -15,8 +15,8 @@ local CRAFTS = {
     { key = "smelting",       ranks = { 2575, 2576, 3564, 10248, 29354, 50310 }, aliases = { "Mining", "Smelting" }, openSpell = 2656 },
 }
 
-BINDING_HEADER_PROFESSIONSSWITCHER = "Prof. Switcher"
-BINDING_NAME_PROFESSIONSSWITCHER_OPEN = "Prof. Switcher"
+BINDING_HEADER_PROFESSIONSSWITCHER = "Profession Switcher"
+BINDING_NAME_PROFESSIONSSWITCHER_OPEN = "PS-Open Prof. Window"
 
 local db
 local tradeDrop, craftDrop
@@ -218,7 +218,31 @@ local function HideTitle(fontString)
     end
 end
 
+local function MenuIsOpen()
+    local list1 = _G.DropDownList1
+    local list2 = _G.DropDownList2
+    return (list1 and list1:IsShown()) or (list2 and list2:IsShown())
+end
+
+local function DropLabel()
+    local openName = OpenLineName()
+    if openName then
+        return openName
+    end
+    local crafts = KnownCrafts()
+    return crafts[1] and CraftName(crafts[1]) or "Professions"
+end
+
+local function SetDropLabel(drop)
+    if drop and UIDropDownMenu_SetText then
+        UIDropDownMenu_SetText(drop, DropLabel())
+    end
+end
+
 local function InitDrop(drop)
+    if not drop or MenuIsOpen() then
+        return
+    end
     local openName = OpenLineName()
     UIDropDownMenu_Initialize(drop, function()
         local crafts = KnownCrafts()
@@ -241,13 +265,7 @@ local function InitDrop(drop)
             UIDropDownMenu_AddButton(info)
         end
     end)
-
-    local label = openName
-    if not label then
-        local crafts = KnownCrafts()
-        label = crafts[1] and CraftName(crafts[1]) or "Professions"
-    end
-    UIDropDownMenu_SetText(drop, label)
+    SetDropLabel(drop)
 end
 
 local function PlaceDrop(drop, parent, rankFrame)
@@ -276,6 +294,32 @@ local function EnsureDrop(parent, globalName)
 end
 
 local applyingPos = false
+
+local function DetachFromPanelLayout(frame)
+    if not frame then
+        return
+    end
+    local name = frame.GetName and frame:GetName()
+    if name and UIPanelWindows then
+        UIPanelWindows[name] = nil
+    end
+    if frame.SetAttribute then
+        frame:SetAttribute("UIPanelLayout-defined", true)
+        frame:SetAttribute("UIPanelLayout-enabled", false)
+    end
+    if name and UISpecialFrames then
+        local found
+        for i = 1, #UISpecialFrames do
+            if UISpecialFrames[i] == name then
+                found = true
+                break
+            end
+        end
+        if not found then
+            tinsert(UISpecialFrames, name)
+        end
+    end
+end
 
 local function SaveFramePos(frame, key)
     if not db or not frame then
@@ -333,14 +377,70 @@ local function MakeCraftFrameMovable(frame, key)
     end)
     if not hooked.panelPos and hooksecurefunc then
         hooksecurefunc("UpdateUIPanelPositions", function()
-            if TradeSkillFrame and TradeSkillFrame:IsShown() then
-                ApplyFramePos(TradeSkillFrame, "tradePos")
+            if TradeSkillFrame then
+                DetachFromPanelLayout(TradeSkillFrame)
+                if TradeSkillFrame:IsShown() then
+                    ApplyFramePos(TradeSkillFrame, "tradePos")
+                end
             end
-            if CraftFrame and CraftFrame:IsShown() then
-                ApplyFramePos(CraftFrame, "craftPos")
+            if CraftFrame then
+                DetachFromPanelLayout(CraftFrame)
+                if CraftFrame:IsShown() then
+                    ApplyFramePos(CraftFrame, "craftPos")
+                end
             end
         end)
         hooked.panelPos = true
+    end
+end
+
+local function FillTradeReagentIcons()
+    if not GetTradeSkillSelectionIndex or not GetTradeSkillNumReagents then
+        return
+    end
+    local index = GetTradeSkillSelectionIndex()
+    if not index or index < 1 then
+        return
+    end
+    local num = GetTradeSkillNumReagents(index)
+    for i = 1, num do
+        local name, tex = GetTradeSkillReagentInfo(index, i)
+        if name and (not tex or tex == "") then
+            local link = GetTradeSkillReagentItemLink and GetTradeSkillReagentItemLink(index, i)
+            if link then
+                local _, _, _, _, _, _, _, _, _, icon = GetItemInfo(link)
+                tex = icon
+            end
+        end
+        local btn = _G["TradeSkillReagent" .. i]
+        if btn and tex and SetItemButtonTexture then
+            SetItemButtonTexture(btn, tex)
+        end
+    end
+end
+
+local function FillCraftReagentIcons()
+    if not GetCraftSelectionIndex or not GetCraftNumReagents then
+        return
+    end
+    local index = GetCraftSelectionIndex()
+    if not index or index < 1 then
+        return
+    end
+    local num = GetCraftNumReagents(index)
+    for i = 1, num do
+        local name, tex = GetCraftReagentInfo(index, i)
+        if name and (not tex or tex == "") then
+            local link = GetCraftReagentItemLink and GetCraftReagentItemLink(index, i)
+            if link then
+                local _, _, _, _, _, _, _, _, _, icon = GetItemInfo(link)
+                tex = icon
+            end
+        end
+        local btn = _G["CraftReagent" .. i]
+        if btn and tex and SetItemButtonTexture then
+            SetItemButtonTexture(btn, tex)
+        end
     end
 end
 
@@ -350,21 +450,31 @@ local function AttachTradeSkill()
         return
     end
     MakeCraftFrameMovable(parent, "tradePos")
+    DetachFromPanelLayout(parent)
     parent:SetFrameStrata("HIGH")
     ApplyFramePos(parent, "tradePos")
     tradeDrop = EnsureDrop(parent, "ProfessionsSwitcherTradeDrop")
     PlaceDrop(tradeDrop, parent, _G.TradeSkillRankFrame)
     HideTitle(_G.TradeSkillFrameTitleText)
-    InitDrop(tradeDrop)
+    if not hooked.tradeDropInit then
+        InitDrop(tradeDrop)
+        hooked.tradeDropInit = true
+    else
+        SetDropLabel(tradeDrop)
+    end
 
     if not hooked.tradeUpdate and hooksecurefunc and TradeSkillFrame_Update then
         hooksecurefunc("TradeSkillFrame_Update", function()
             HideTitle(_G.TradeSkillFrameTitleText)
-            if tradeDrop then
-                InitDrop(tradeDrop)
-            end
+            SetDropLabel(tradeDrop)
         end)
         hooked.tradeUpdate = true
+    end
+    if not hooked.tradeSelect and hooksecurefunc and TradeSkillFrame_SetSelection then
+        hooksecurefunc("TradeSkillFrame_SetSelection", function()
+            FillTradeReagentIcons()
+        end)
+        hooked.tradeSelect = true
     end
 end
 
@@ -374,21 +484,31 @@ local function AttachCraft()
         return
     end
     MakeCraftFrameMovable(parent, "craftPos")
+    DetachFromPanelLayout(parent)
     parent:SetFrameStrata("HIGH")
     ApplyFramePos(parent, "craftPos")
     craftDrop = EnsureDrop(parent, "ProfessionsSwitcherCraftDrop")
     PlaceDrop(craftDrop, parent, _G.CraftRankFrame)
     HideTitle(_G.CraftFrameTitleText)
-    InitDrop(craftDrop)
+    if not hooked.craftDropInit then
+        InitDrop(craftDrop)
+        hooked.craftDropInit = true
+    else
+        SetDropLabel(craftDrop)
+    end
 
     if not hooked.craftUpdate and hooksecurefunc and CraftFrame_Update then
         hooksecurefunc("CraftFrame_Update", function()
             HideTitle(_G.CraftFrameTitleText)
-            if craftDrop then
-                InitDrop(craftDrop)
-            end
+            SetDropLabel(craftDrop)
         end)
         hooked.craftUpdate = true
+    end
+    if not hooked.craftSelect and hooksecurefunc and CraftFrame_SetSelection then
+        hooksecurefunc("CraftFrame_SetSelection", function()
+            FillCraftReagentIcons()
+        end)
+        hooked.craftSelect = true
     end
 end
 
@@ -425,28 +545,287 @@ events:SetScript("OnEvent", function(_, event, addonName)
         return
     end
 
-    if event == "TRADE_SKILL_SHOW" or event == "TRADE_SKILL_UPDATE" then
+    if event == "TRADE_SKILL_SHOW" then
         AttachTradeSkill()
         RememberOpenCraft()
         return
     end
+    if event == "TRADE_SKILL_UPDATE" then
+        RememberOpenCraft()
+        SetDropLabel(tradeDrop)
+        return
+    end
 
-    if event == "CRAFT_SHOW" or event == "CRAFT_UPDATE" then
+    if event == "CRAFT_SHOW" then
         AttachCraft()
         RememberOpenCraft()
         return
     end
+    if event == "CRAFT_UPDATE" then
+        RememberOpenCraft()
+        SetDropLabel(craftDrop)
+        return
+    end
 
     if tradeDrop and TradeSkillFrame and TradeSkillFrame:IsShown() then
-        InitDrop(tradeDrop)
+        SetDropLabel(tradeDrop)
     end
     if craftDrop and CraftFrame and CraftFrame:IsShown() then
-        InitDrop(craftDrop)
+        SetDropLabel(craftDrop)
+    end
+end)
+
+-- Warms item cache for recipe/reagent icons. Recipe *lists* still come from
+-- the server each time the window opens; this only fills GetItemInfo.
+local cacheJob
+local cacheFrame = CreateFrame("Frame")
+cacheFrame:Hide()
+
+local function CachePrint(msg)
+    DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffProfessionsSwitcher:|r " .. msg)
+end
+
+local function CacheQueryLink(link)
+    if link and GetItemInfo then
+        GetItemInfo(link)
+        return 1
+    end
+    return 0
+end
+
+local function ExpandTradeHeaders()
+    if not GetNumTradeSkills or not GetTradeSkillInfo then
+        return
+    end
+    local i = 1
+    local n = GetNumTradeSkills()
+    while i <= n do
+        local _, header, expanded = GetTradeSkillInfo(i)
+        if header and not expanded then
+            if ExpandTradeSkillSubClass then
+                ExpandTradeSkillSubClass(i)
+            elseif ExpandTradeSkillHeader then
+                ExpandTradeSkillHeader(i)
+            end
+            n = GetNumTradeSkills()
+        end
+        i = i + 1
+    end
+end
+
+local function ExpandCraftHeaders()
+    if not GetNumCrafts or not GetCraftInfo then
+        return
+    end
+    local i = 1
+    local n = GetNumCrafts()
+    while i <= n do
+        local _, _, craftType, _, expanded = GetCraftInfo(i)
+        if craftType == "header" and not expanded and ExpandCraftSkillLine then
+            ExpandCraftSkillLine(i)
+            n = GetNumCrafts()
+        end
+        i = i + 1
+    end
+end
+
+local function CacheScanTrade(job, limit)
+    if not GetNumTradeSkills then
+        return true
+    end
+    local n = GetNumTradeSkills()
+    local scanned = 0
+    while job.scanIndex <= n and scanned < limit do
+        local name, header = GetTradeSkillInfo(job.scanIndex)
+        if name and not header then
+            job.recipes = job.recipes + 1
+            job.items = job.items + CacheQueryLink(GetTradeSkillItemLink and GetTradeSkillItemLink(job.scanIndex))
+            local reagents = GetTradeSkillNumReagents and GetTradeSkillNumReagents(job.scanIndex) or 0
+            for r = 1, reagents do
+                job.items = job.items + CacheQueryLink(GetTradeSkillReagentItemLink and GetTradeSkillReagentItemLink(job.scanIndex, r))
+            end
+        end
+        job.scanIndex = job.scanIndex + 1
+        scanned = scanned + 1
+        n = GetNumTradeSkills()
+    end
+    return job.scanIndex > n
+end
+
+local function CacheScanCraft(job, limit)
+    if not GetNumCrafts then
+        return true
+    end
+    local n = GetNumCrafts()
+    local scanned = 0
+    while job.scanIndex <= n and scanned < limit do
+        local name, _, craftType = GetCraftInfo(job.scanIndex)
+        if name and craftType ~= "header" then
+            job.recipes = job.recipes + 1
+            job.items = job.items + CacheQueryLink(GetCraftItemLink and GetCraftItemLink(job.scanIndex))
+            local reagents = GetCraftNumReagents and GetCraftNumReagents(job.scanIndex) or 0
+            for r = 1, reagents do
+                job.items = job.items + CacheQueryLink(GetCraftReagentItemLink and GetCraftReagentItemLink(job.scanIndex, r))
+            end
+        end
+        job.scanIndex = job.scanIndex + 1
+        scanned = scanned + 1
+        n = GetNumCrafts()
+    end
+    return job.scanIndex > n
+end
+
+local function CacheCloseWindows()
+    if CloseTradeSkill then
+        CloseTradeSkill()
+    end
+    if CloseCraft then
+        CloseCraft()
+    end
+end
+
+local function CacheStop(quiet)
+    cacheJob = nil
+    cacheFrame:Hide()
+    if not quiet then
+        CachePrint("Precache stopped.")
+    end
+end
+
+local function CacheStart()
+    if cacheJob then
+        CachePrint("Already running. Use /profcache stop")
+        return
+    end
+    if InCombatLockdown and InCombatLockdown() then
+        CachePrint("Cannot precache during combat.")
+        return
+    end
+    local crafts = KnownCrafts()
+    if #crafts == 0 then
+        CachePrint("No professions found.")
+        return
+    end
+    cacheJob = {
+        queue = crafts,
+        q = 1,
+        phase = "open",
+        scanIndex = 1,
+        lastCount = -1,
+        stableAt = 0,
+        waitUntil = 0,
+        recipes = 0,
+        items = 0,
+        expanded = false,
+    }
+    cacheFrame:Show()
+    CachePrint("Precaching " .. #crafts .. " profession(s). Windows will open and close. /profcache stop to cancel.")
+end
+
+cacheFrame:SetScript("OnUpdate", function()
+    local job = cacheJob
+    if not job then
+        cacheFrame:Hide()
+        return
+    end
+    if InCombatLockdown and InCombatLockdown() then
+        CacheStop(true)
+        CachePrint("Precache stopped (combat).")
+        return
+    end
+    if MenuIsOpen() then
+        return
+    end
+    local now = GetTime()
+    local craft = job.queue[job.q]
+    if not craft then
+        CacheCloseWindows()
+        CachePrint(string.format("Precache done. %d recipes, %d item queries.", job.recipes, job.items))
+        cacheJob = nil
+        cacheFrame:Hide()
+        return
+    end
+    if job.phase == "open" then
+        CacheCloseWindows()
+        job.waitUntil = now + 0.25
+        job.phase = "cast"
+        job.scanIndex = 1
+        job.lastCount = -1
+        job.stableAt = 0
+        job.expanded = false
+        return
+    end
+    if job.phase == "cast" then
+        if now < job.waitUntil then
+            return
+        end
+        CachePrint("Caching " .. CraftName(craft) .. "...")
+        OpenCraft(craft)
+        job.waitUntil = now + 8
+        job.phase = "wait"
+        return
+    end
+    if job.phase == "wait" then
+        local ready, count
+        if craft.craftUI then
+            ready = CraftFrame and CraftFrame:IsShown()
+            count = GetNumCrafts and GetNumCrafts() or 0
+        else
+            ready = TradeSkillFrame and TradeSkillFrame:IsShown()
+            count = GetNumTradeSkills and GetNumTradeSkills() or 0
+        end
+        if ready then
+            if count ~= job.lastCount then
+                job.lastCount = count
+                job.stableAt = now + 0.6
+            elseif job.stableAt > 0 and now >= job.stableAt then
+                job.phase = "scan"
+            end
+        elseif now >= job.waitUntil then
+            CachePrint("Skipped " .. CraftName(craft) .. " (did not open).")
+            job.q = job.q + 1
+            job.phase = "open"
+        end
+        return
+    end
+    if job.phase == "scan" then
+        if not job.expanded then
+            if craft.craftUI then
+                ExpandCraftHeaders()
+            else
+                if TradeSkillOnlyShowMakeable then
+                    TradeSkillOnlyShowMakeable(false)
+                end
+                ExpandTradeHeaders()
+            end
+            job.expanded = true
+            job.scanIndex = 1
+            return
+        end
+        local done
+        if craft.craftUI then
+            done = CacheScanCraft(job, 25)
+        else
+            done = CacheScanTrade(job, 25)
+        end
+        if done then
+            job.phase = "next"
+            job.waitUntil = now + 0.15
+        end
+        return
+    end
+    if job.phase == "next" then
+        if now < job.waitUntil then
+            return
+        end
+        job.q = job.q + 1
+        job.phase = "open"
     end
 end)
 
 SLASH_PROFRESET1 = "/profreset"
 SLASH_PROFOPEN1 = "/openprof"
+SLASH_PROFCACHE1 = "/profcache"
 SlashCmdList["PROFRESET"] = function()
     if not db then
         ProfessionsSwitcherDB = ProfessionsSwitcherDB or {}
@@ -463,4 +842,17 @@ end
 
 SlashCmdList["PROFOPEN"] = function()
     ProfessionsSwitcher_OpenLast()
+end
+
+SlashCmdList["PROFCACHE"] = function(msg)
+    msg = msg and string.lower(msg) or ""
+    if msg == "stop" or msg == "cancel" then
+        if cacheJob then
+            CacheStop()
+        else
+            CachePrint("Precache is not running.")
+        end
+        return
+    end
+    CacheStart()
 end

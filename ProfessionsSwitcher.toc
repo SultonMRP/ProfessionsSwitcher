@@ -2,7 +2,7 @@
 ## Title: Professions Switcher
 ## Notes: Adds a dropdown of your crafting professions to the top of every crafting window.
 ## Author: sultonmrp
-## Version: 1.1
+## Version: 1.6
 ## SavedVariablesPerCharacter: ProfessionsSwitcherDB
 
 ProfessionsSwitcher.lua
